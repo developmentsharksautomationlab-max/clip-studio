@@ -36,6 +36,11 @@ yarn-error.log*
 # vercel
 .vercel
 
+# clip studio: local video storage, jobs, generated output, cached models
+/storage/
+/public/generated/
+/models/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

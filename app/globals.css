@@ -3,6 +3,7 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  color-scheme: light;
 }
 
 @theme inline {
@@ -12,13 +13,11 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
+/* This app uses one deliberately light theme everywhere (white cards,
+   dark text) rather than adapting per-component to the OS color scheme, so
+   the color scheme is pinned here instead of following
+   prefers-color-scheme. Letting :root flip to dark values previously left
+   several elements with near-white inherited text on light backgrounds. */
 body {
   background: var(--background);
   color: var(--foreground);
