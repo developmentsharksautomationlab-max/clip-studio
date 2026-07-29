@@ -8,13 +8,14 @@ import { resolveWhisperLanguage } from "./languages";
 import type { CaptionChoice } from "./caption-styles";
 import type { ClipCandidate, ClipFormat, ClipMode, RenderedClip } from "./types";
 
-const OUTPUT_FORMATS: ClipFormat[] = ["vertical", "original"];
-
 export interface RunPipelineOptions {
   captionStyle: CaptionChoice;
   mode: ClipMode;
   clipCount?: number;
   languageId: string;
+  formats: ClipFormat[];
+  removeFillers: boolean;
+  watermarkPath?: string;
 }
 
 export async function runPipeline(
@@ -64,20 +65,17 @@ export async function runPipeline(
     for (const candidate of candidates) {
       const clipNumber = candidate.index + 1;
 
-      for (const format of OUTPUT_FORMATS) {
-        const rendered = await renderClip(
-          sourcePath,
-          candidate,
-          workDir,
-          outputDir,
-          format,
-          options.captionStyle,
-          (message) => {
+      for (const format of options.formats) {
+        const rendered = await renderClip(sourcePath, candidate, workDir, outputDir, format, {
+          captionStyle: options.captionStyle,
+          removeFillers: options.removeFillers,
+          watermarkPath: options.watermarkPath,
+          onProgress: (message) => {
             reportProgress(
               `Rendering clip ${clipNumber}/${candidates.length} (${format}): ${message}`
             );
-          }
-        );
+          },
+        });
         clips.push({ ...rendered, url: publicUrlFor(jobId, rendered.filename) });
       }
 

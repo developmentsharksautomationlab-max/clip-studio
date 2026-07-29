@@ -8,7 +8,13 @@ import {
   type CaptionStyleId,
 } from "@/lib/video/caption-styles";
 import { LANGUAGE_OPTIONS, DEFAULT_LANGUAGE_ID } from "@/lib/video/languages";
-import type { ClipMode } from "@/lib/video/types";
+import type { ClipFormat, ClipMode } from "@/lib/video/types";
+
+const FORMAT_OPTIONS: { id: ClipFormat; label: string; hint: string }[] = [
+  { id: "vertical", label: "Vertical", hint: "9:16" },
+  { id: "original", label: "Original", hint: "source ratio" },
+  { id: "square", label: "Square", hint: "1:1" },
+];
 
 const OUTLINE_SHADOW = "-1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000";
 
@@ -55,8 +61,25 @@ export default function Home() {
   const [language, setLanguage] = useState(DEFAULT_LANGUAGE_ID);
   const [captionsEnabled, setCaptionsEnabled] = useState(true);
   const [captionStyle, setCaptionStyle] = useState<CaptionStyleId>("bold-impact");
+  const [formats, setFormats] = useState<Set<ClipFormat>>(new Set(["vertical", "original"]));
+  const [removeFillers, setRemoveFillers] = useState(true);
+  const [watermarkEnabled, setWatermarkEnabled] = useState(false);
+  const [watermarkFile, setWatermarkFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  function toggleFormat(id: ClipFormat) {
+    setFormats((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        if (next.size === 1) return prev; // keep at least one format selected
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }
 
   function handleDrop(e: DragEvent<HTMLLabelElement>) {
     e.preventDefault();
@@ -81,6 +104,11 @@ export default function Home() {
       }
       formData.append("language", language);
       formData.append("captionStyle", captionsEnabled ? captionStyle : "none");
+      for (const format of formats) formData.append("formats", format);
+      formData.append("removeFillers", String(removeFillers));
+      if (watermarkEnabled && watermarkFile) {
+        formData.append("watermark", watermarkFile);
+      }
 
       const res = await fetch("/api/upload", { method: "POST", body: formData });
       const data = await res.json();
@@ -183,6 +211,44 @@ export default function Home() {
           </div>
 
           <div className="mt-8">
+            <SectionLabel>Formats</SectionLabel>
+            <div className="mt-3 grid grid-cols-3 gap-3">
+              {FORMAT_OPTIONS.map((option) => (
+                <button
+                  type="button"
+                  key={option.id}
+                  onClick={() => toggleFormat(option.id)}
+                  className={`rounded-xl border p-3 text-left transition-colors ${
+                    formats.has(option.id)
+                      ? "border-gray-900 ring-1 ring-gray-900"
+                      : "border-gray-200 hover:border-gray-300"
+                  }`}
+                >
+                  <p className="text-sm font-medium text-gray-900">{option.label}</p>
+                  <p className="text-[11px] text-gray-500">{option.hint}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-8">
+            <label className="flex cursor-pointer items-center justify-between">
+              <div>
+                <SectionLabel>Remove filler words &amp; silences</SectionLabel>
+                <p className="text-[11px] leading-snug text-gray-500">
+                  Auto-cuts &quot;um&quot;/&quot;uh&quot; and long dead-air pauses for a tighter edit.
+                </p>
+              </div>
+              <input
+                type="checkbox"
+                checked={removeFillers}
+                onChange={(e) => setRemoveFillers(e.target.checked)}
+                className="h-4 w-4 shrink-0 rounded border-gray-300 accent-gray-900"
+              />
+            </label>
+          </div>
+
+          <div className="mt-8">
             <label htmlFor="language" className="block">
               <SectionLabel>Language</SectionLabel>
             </label>
@@ -236,6 +302,33 @@ export default function Home() {
                   </button>
                 ))}
               </div>
+            )}
+          </div>
+
+          <div className="mt-8">
+            <label className="flex cursor-pointer items-center justify-between">
+              <SectionLabel>Add watermark</SectionLabel>
+              <input
+                type="checkbox"
+                checked={watermarkEnabled}
+                onChange={(e) => setWatermarkEnabled(e.target.checked)}
+                className="h-4 w-4 rounded border-gray-300 accent-gray-900"
+              />
+            </label>
+
+            {watermarkEnabled && (
+              <label className="mt-3 flex cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-gray-300 px-6 py-6 text-center transition-colors hover:border-gray-400">
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  className="hidden"
+                  onChange={(e) => setWatermarkFile(e.target.files?.[0] ?? null)}
+                />
+                <span className="text-sm font-medium text-gray-900">
+                  {watermarkFile ? watermarkFile.name : "Click to choose a logo image"}
+                </span>
+                <span className="text-xs text-gray-500">PNG, JPG, or WEBP — placed bottom-right</span>
+              </label>
             )}
           </div>
 

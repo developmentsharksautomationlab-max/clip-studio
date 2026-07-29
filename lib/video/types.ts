@@ -31,9 +31,11 @@ export interface ClipCandidate {
   start: number;
   end: number;
   segments: TranscriptSegment[];
+  title?: string;
+  score?: number;
 }
 
-export type ClipFormat = "vertical" | "original";
+export type ClipFormat = "vertical" | "original" | "square";
 
 export interface RenderedClip {
   index: number;
@@ -42,6 +44,8 @@ export interface RenderedClip {
   format: ClipFormat;
   filename: string;
   url: string;
+  title?: string;
+  score?: number;
 }
 
 export type ClipMode = "clips" | "caption-only";
@@ -57,6 +61,9 @@ export interface Job {
   mode: ClipMode;
   clipCount?: number;
   languageId: string;
+  formats: ClipFormat[];
+  removeFillers: boolean;
+  watermarkFilename?: string;
   progressMessage?: string;
   error?: string;
   clips: RenderedClip[];

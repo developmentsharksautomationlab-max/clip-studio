@@ -2,36 +2,26 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-
-type ClipFormat = "vertical" | "original";
-
-interface RenderedClip {
-  index: number;
-  start: number;
-  end: number;
-  format: ClipFormat;
-  filename: string;
-  url: string;
-}
-
-type JobStatus = "queued" | "transcribing" | "segmenting" | "rendering" | "done" | "error";
-type ClipMode = "clips" | "caption-only";
-
-interface Job {
-  id: string;
-  status: JobStatus;
-  mode: ClipMode;
-  progressMessage?: string;
-  error?: string;
-  clips: RenderedClip[];
-}
+import type { Job, JobStatus, RenderedClip } from "@/lib/video/types";
 
 function groupClipsByIndex(clips: RenderedClip[]) {
-  const byIndex = new Map<number, { index: number; vertical?: RenderedClip; original?: RenderedClip }>();
+  const byIndex = new Map<
+    number,
+    {
+      index: number;
+      title?: string;
+      score?: number;
+      vertical?: RenderedClip;
+      original?: RenderedClip;
+      square?: RenderedClip;
+    }
+  >();
 
   for (const clip of clips) {
     const group = byIndex.get(clip.index) ?? { index: clip.index };
     group[clip.format] = clip;
+    if (!group.title && clip.title) group.title = clip.title;
+    if (group.score === undefined && clip.score !== undefined) group.score = clip.score;
     byIndex.set(clip.index, group);
   }
 
@@ -62,6 +52,30 @@ function DownloadButton({ href, label }: { href: string; label: string }) {
     >
       {label}
     </a>
+  );
+}
+
+function CopyTitleButton({ title }: { title: string }) {
+  const [copied, setCopied] = useState(false);
+
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(title);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard API can be unavailable in some contexts; nothing to do.
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      className="shrink-0 text-xs font-medium text-gray-500 underline underline-offset-2 hover:text-gray-900"
+    >
+      {copied ? "Copied" : "Copy title"}
+    </button>
   );
 }
 
@@ -157,32 +171,58 @@ export default function JobViewer({ jobId }: { jobId: string }) {
 
         {job.clips.length > 0 && (
           <div className="mt-8 flex flex-col gap-5">
-            {groupClipsByIndex(job.clips).map(({ index, vertical, original }) => (
+            {groupClipsByIndex(job.clips).map(({ index, title, score, vertical, original, square }) => (
               <div
                 key={index}
-                className="flex flex-wrap items-start gap-6 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm"
+                className="flex flex-col gap-3 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm"
               >
-                <span className="w-16 shrink-0 pt-1 text-sm font-medium text-gray-500">
-                  {job.mode === "caption-only" ? "Video" : `Clip ${index + 1}`}
-                </span>
-
-                {vertical && (
-                  <div className="flex w-40 flex-col gap-2">
-                    <video
-                      src={vertical.url}
-                      controls
-                      className="w-full aspect-[9/16] rounded-lg bg-black object-cover"
-                    />
-                    <DownloadButton href={vertical.url} label="Download 9:16" />
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-sm font-medium text-gray-500">
+                        {job.mode === "caption-only" ? "Video" : `Clip ${index + 1}`}
+                      </span>
+                      {score !== undefined && score >= 70 && (
+                        <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
+                          Suggested
+                        </span>
+                      )}
+                    </div>
+                    {title && <p className="text-sm font-medium text-gray-900">{title}</p>}
                   </div>
-                )}
+                  {title && <CopyTitleButton title={title} />}
+                </div>
 
-                {original && (
-                  <div className="flex w-72 flex-col gap-2">
-                    <video src={original.url} controls className="w-full rounded-lg bg-black" />
-                    <DownloadButton href={original.url} label="Download original" />
-                  </div>
-                )}
+                <div className="flex flex-wrap items-start gap-6">
+                  {vertical && (
+                    <div className="flex w-40 flex-col gap-2">
+                      <video
+                        src={vertical.url}
+                        controls
+                        className="w-full aspect-[9/16] rounded-lg bg-black object-cover"
+                      />
+                      <DownloadButton href={vertical.url} label="Download 9:16" />
+                    </div>
+                  )}
+
+                  {square && (
+                    <div className="flex w-40 flex-col gap-2">
+                      <video
+                        src={square.url}
+                        controls
+                        className="w-full aspect-square rounded-lg bg-black object-cover"
+                      />
+                      <DownloadButton href={square.url} label="Download 1:1" />
+                    </div>
+                  )}
+
+                  {original && (
+                    <div className="flex w-72 flex-col gap-2">
+                      <video src={original.url} controls className="w-full rounded-lg bg-black" />
+                      <DownloadButton href={original.url} label="Download original" />
+                    </div>
+                  )}
+                </div>
               </div>
             ))}
           </div>

@@ -1,6 +1,7 @@
 import { promises as fs } from "node:fs";
+import path from "node:path";
 import { JOBS_DIR, jobFilePath } from "./paths";
-import type { ClipMode, Job } from "./types";
+import type { ClipFormat, ClipMode, Job } from "./types";
 import type { CaptionChoice } from "./caption-styles";
 
 export interface CreateJobOptions {
@@ -10,6 +11,9 @@ export interface CreateJobOptions {
   mode: ClipMode;
   clipCount?: number;
   languageId: string;
+  formats: ClipFormat[];
+  removeFillers: boolean;
+  watermarkFilename?: string;
 }
 
 async function ensureJobsDir(): Promise<void> {
@@ -80,6 +84,9 @@ export async function createJob(id: string, options: CreateJobOptions): Promise<
     mode: options.mode,
     clipCount: options.clipCount,
     languageId: options.languageId,
+    formats: options.formats,
+    removeFillers: options.removeFillers,
+    watermarkFilename: options.watermarkFilename,
     clips: [],
   };
   await runExclusive(id, () => writeJobFile(job));
@@ -98,6 +105,25 @@ export async function readJob(id: string): Promise<Job | null> {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw err;
   }
+}
+
+export async function listJobs(): Promise<Job[]> {
+  await ensureJobsDir();
+  const entries = await fs.readdir(JOBS_DIR);
+  const jobs: Job[] = [];
+
+  for (const entry of entries) {
+    if (!entry.endsWith(".json") || entry.endsWith(".tmp")) continue;
+    try {
+      const raw = await fs.readFile(path.join(JOBS_DIR, entry), "utf8");
+      jobs.push(JSON.parse(raw) as Job);
+    } catch {
+      // Skip a job file mid-write or otherwise corrupt rather than failing
+      // the whole listing.
+    }
+  }
+
+  return jobs.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
 export async function updateJob(
