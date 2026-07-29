@@ -16,6 +16,12 @@ const FORMAT_OPTIONS: { id: ClipFormat; label: string; hint: string }[] = [
   { id: "square", label: "Square", hint: "1:1" },
 ];
 
+const DURATION_OPTIONS: { id: number; label: string }[] = [
+  { id: 15, label: "15s" },
+  { id: 30, label: "30s" },
+  { id: 60, label: "60s" },
+];
+
 const OUTLINE_SHADOW = "-1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000";
 
 function StylePreview({ styleId }: { styleId: CaptionStyleId }) {
@@ -58,6 +64,7 @@ export default function Home() {
   const [isDragging, setIsDragging] = useState(false);
   const [mode, setMode] = useState<ClipMode>("clips");
   const [clipCount, setClipCount] = useState("");
+  const [targetDuration, setTargetDuration] = useState<number | null>(null);
   const [language, setLanguage] = useState(DEFAULT_LANGUAGE_ID);
   const [captionsEnabled, setCaptionsEnabled] = useState(true);
   const [captionStyle, setCaptionStyle] = useState<CaptionStyleId>("bold-impact");
@@ -99,7 +106,9 @@ export default function Home() {
       const formData = new FormData();
       formData.append("video", file);
       formData.append("mode", mode);
-      if (mode === "clips" && clipCount.trim() !== "") {
+      if (mode === "clips" && targetDuration !== null) {
+        formData.append("targetDurationSeconds", String(targetDuration));
+      } else if (mode === "clips" && clipCount.trim() !== "") {
         formData.append("clipCount", clipCount.trim());
       }
       formData.append("language", language);
@@ -192,20 +201,55 @@ export default function Home() {
             </div>
 
             {mode === "clips" && (
-              <div className="mt-3 flex items-center gap-3">
-                <label htmlFor="clipCount" className="text-sm text-gray-600">
-                  Number of clips
-                </label>
-                <input
-                  id="clipCount"
-                  type="number"
-                  min={1}
-                  max={20}
-                  placeholder="Auto"
-                  value={clipCount}
-                  onChange={(e) => setClipCount(e.target.value)}
-                  className="w-24 rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-900 focus:border-gray-900 focus:outline-none"
-                />
+              <div className="mt-3 flex flex-col gap-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-gray-600">Clip length</span>
+                  <div className="flex gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setTargetDuration(null)}
+                      className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
+                        targetDuration === null
+                          ? "border-gray-900 bg-gray-900 text-white"
+                          : "border-gray-300 text-gray-600 hover:border-gray-400"
+                      }`}
+                    >
+                      Auto
+                    </button>
+                    {DURATION_OPTIONS.map((option) => (
+                      <button
+                        key={option.id}
+                        type="button"
+                        onClick={() => setTargetDuration(option.id)}
+                        className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
+                          targetDuration === option.id
+                            ? "border-gray-900 bg-gray-900 text-white"
+                            : "border-gray-300 text-gray-600 hover:border-gray-400"
+                        }`}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {targetDuration === null && (
+                  <div className="flex items-center gap-3">
+                    <label htmlFor="clipCount" className="text-sm text-gray-600">
+                      Number of clips
+                    </label>
+                    <input
+                      id="clipCount"
+                      type="number"
+                      min={1}
+                      max={20}
+                      placeholder="Auto"
+                      value={clipCount}
+                      onChange={(e) => setClipCount(e.target.value)}
+                      className="w-24 rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-900 focus:border-gray-900 focus:outline-none"
+                    />
+                  </div>
+                )}
               </div>
             )}
           </div>

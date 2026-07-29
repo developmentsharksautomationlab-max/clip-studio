@@ -10,6 +10,7 @@ export interface CreateJobOptions {
   captionStyle: CaptionChoice;
   mode: ClipMode;
   clipCount?: number;
+  targetDurationSeconds?: number;
   languageId: string;
   formats: ClipFormat[];
   removeFillers: boolean;
@@ -83,6 +84,7 @@ export async function createJob(id: string, options: CreateJobOptions): Promise<
     captionStyle: options.captionStyle,
     mode: options.mode,
     clipCount: options.clipCount,
+    targetDurationSeconds: options.targetDurationSeconds,
     languageId: options.languageId,
     formats: options.formats,
     removeFillers: options.removeFillers,

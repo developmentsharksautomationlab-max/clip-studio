@@ -46,6 +46,7 @@ export interface RenderedClip {
   url: string;
   title?: string;
   score?: number;
+  srtUrl?: string;
 }
 
 export type ClipMode = "clips" | "caption-only";
@@ -60,6 +61,7 @@ export interface Job {
   captionStyle: CaptionChoice;
   mode: ClipMode;
   clipCount?: number;
+  targetDurationSeconds?: number;
   languageId: string;
   formats: ClipFormat[];
   removeFillers: boolean;

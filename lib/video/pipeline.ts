@@ -12,6 +12,7 @@ export interface RunPipelineOptions {
   captionStyle: CaptionChoice;
   mode: ClipMode;
   clipCount?: number;
+  targetDurationSeconds?: number;
   languageId: string;
   formats: ClipFormat[];
   removeFillers: boolean;
@@ -50,7 +51,10 @@ export async function runPipeline(
     const candidates: ClipCandidate[] =
       options.mode === "caption-only"
         ? [await buildFullVideoCandidate(sourcePath, transcript.segments)]
-        : selectClipCandidates(transcript.segments, options.clipCount);
+        : selectClipCandidates(transcript.segments, {
+            targetClipCount: options.clipCount,
+            targetDurationSeconds: options.targetDurationSeconds,
+          });
 
     if (candidates.length === 0) {
       throw new Error("Could not find any speech in this video to build clips from.");
@@ -66,17 +70,28 @@ export async function runPipeline(
       const clipNumber = candidate.index + 1;
 
       for (const format of options.formats) {
-        const rendered = await renderClip(sourcePath, candidate, workDir, outputDir, format, {
-          captionStyle: options.captionStyle,
-          removeFillers: options.removeFillers,
-          watermarkPath: options.watermarkPath,
-          onProgress: (message) => {
-            reportProgress(
-              `Rendering clip ${clipNumber}/${candidates.length} (${format}): ${message}`
-            );
-          },
+        const { srtFilename, ...rendered } = await renderClip(
+          sourcePath,
+          candidate,
+          workDir,
+          outputDir,
+          format,
+          {
+            captionStyle: options.captionStyle,
+            removeFillers: options.removeFillers,
+            watermarkPath: options.watermarkPath,
+            onProgress: (message) => {
+              reportProgress(
+                `Rendering clip ${clipNumber}/${candidates.length} (${format}): ${message}`
+              );
+            },
+          }
+        );
+        clips.push({
+          ...rendered,
+          url: publicUrlFor(jobId, rendered.filename),
+          srtUrl: publicUrlFor(jobId, srtFilename),
         });
-        clips.push({ ...rendered, url: publicUrlFor(jobId, rendered.filename) });
       }
 
       const doneMessage = `Rendered ${clipNumber}/${candidates.length} clips`;

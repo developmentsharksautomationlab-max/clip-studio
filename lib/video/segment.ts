@@ -47,14 +47,19 @@ function deriveTitle(segments: TranscriptSegment[]): string {
   return title;
 }
 
+export interface SelectClipCandidatesOptions {
+  targetClipCount?: number;
+  targetDurationSeconds?: number;
+}
+
 export function selectClipCandidates(
   segments: TranscriptSegment[],
-  targetClipCount?: number
+  options: SelectClipCandidatesOptions = {}
 ): ClipCandidate[] {
   const candidates: ClipCandidate[] = [];
   let current: TranscriptSegment[] = [];
 
-  const targetClipSeconds = computeTargetClipSeconds(segments, targetClipCount);
+  const targetClipSeconds = computeTargetClipSeconds(segments, options);
 
   const flush = () => {
     if (current.length === 0) return;
@@ -96,13 +101,19 @@ export function selectClipCandidates(
   return candidates;
 }
 
-// With no explicit count, clips target a fixed length. With a requested
-// count, natural sentence/pause boundaries can't be forced to land on an
-// exact number, so this instead spreads the total spoken duration evenly
-// across that many clips and cuts at whichever boundary is closest to each
-// share — approximate, but respects the user's intent without cutting
-// mid-sentence to hit an exact count.
-function computeTargetClipSeconds(segments: TranscriptSegment[], targetClipCount?: number): number {
+// A duration preset (15s/30s/60s) is used directly as the target length.
+// With no duration but an explicit count, natural sentence/pause boundaries
+// can't be forced to land on an exact number, so this instead spreads the
+// total spoken duration evenly across that many clips and cuts at whichever
+// boundary is closest to each share — approximate, but respects the user's
+// intent without cutting mid-sentence to hit an exact count.
+function computeTargetClipSeconds(
+  segments: TranscriptSegment[],
+  { targetClipCount, targetDurationSeconds }: SelectClipCandidatesOptions
+): number {
+  if (targetDurationSeconds && targetDurationSeconds > 0) {
+    return Math.max(MIN_CLIP_SECONDS, targetDurationSeconds);
+  }
   if (!targetClipCount || targetClipCount < 1 || segments.length === 0) {
     return DEFAULT_TARGET_CLIP_SECONDS;
   }

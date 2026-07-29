@@ -2,6 +2,7 @@ import path from "node:path";
 import { promises as fs } from "node:fs";
 import { runFfmpeg, probeVideo, formatDuration } from "./ffmpeg";
 import { writeAssFile } from "./caption";
+import { buildSrt } from "./srt";
 import { toFfmpegFilterPath } from "./paths";
 import { computeTrimPlan, remapCandidateForOutput, outputDuration, type TimeRange } from "./trim";
 import type { CaptionChoice } from "./caption-styles";
@@ -48,7 +49,7 @@ export async function renderClip(
   outputDir: string,
   format: ClipFormat,
   options: RenderClipOptions
-): Promise<Omit<RenderedClip, "url">> {
+): Promise<Omit<RenderedClip, "url" | "srtUrl"> & { srtFilename: string }> {
   const { captionStyle, removeFillers, watermarkPath, onProgress } = options;
   const { width, height } = await probeVideo(sourcePath);
 
@@ -101,11 +102,15 @@ export async function renderClip(
   const needsFilterComplex = Boolean(trimPlan) || Boolean(watermarkPath);
   const outputSeconds = outputDuration(keepRanges);
 
+  // Computed once regardless of captionStyle: the .srt export should reflect
+  // the actual (possibly trimmed) output timeline even when burned-in
+  // captions are turned off.
+  const outputCandidate = trimPlan ? remapCandidateForOutput(candidate, trimPlan.keepRanges) : candidate;
+
   if (captionStyle !== "none") {
-    const captionCandidate = trimPlan ? remapCandidateForOutput(candidate, trimPlan.keepRanges) : candidate;
     const assPath = path.join(workDir, `clip-${candidate.index}-${format}-${captionStyle}.ass`);
     await writeAssFile(
-      captionCandidate,
+      outputCandidate,
       assPath,
       { width: canvasWidth, height: canvasHeight },
       captionStyle,
@@ -113,6 +118,9 @@ export async function renderClip(
     );
     filterChain.push(`subtitles=${toFfmpegFilterPath(assPath)}`);
   }
+
+  const srtFilename = `clip-${candidate.index + 1}.srt`;
+  await fs.writeFile(path.join(outputDir, srtFilename), buildSrt(outputCandidate), "utf8");
 
   const filename = `clip-${candidate.index + 1}-${format}.mp4`;
   const outputPath = path.join(outputDir, filename);
@@ -223,5 +231,6 @@ export async function renderClip(
     filename,
     title: candidate.title,
     score: candidate.score,
+    srtFilename,
   };
 }

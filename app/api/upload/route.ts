@@ -15,6 +15,7 @@ const ALLOWED_WATERMARK_EXTENSIONS = new Set(["png", "jpg", "jpeg", "webp"]);
 const ALLOWED_FORMATS = new Set<ClipFormat>(["vertical", "original", "square"]);
 const DEFAULT_FORMATS: ClipFormat[] = ["vertical", "original"];
 const MAX_CLIP_COUNT = 20;
+const ALLOWED_DURATIONS = new Set([15, 30, 60]);
 
 function parseCaptionChoice(value: FormDataEntryValue | null): CaptionChoice {
   if (typeof value === "string" && (value === "none" || isCaptionStyleId(value))) {
@@ -41,6 +42,12 @@ function parseClipCount(value: FormDataEntryValue | null): number | undefined {
   return Math.min(MAX_CLIP_COUNT, Math.round(parsed));
 }
 
+function parseTargetDurationSeconds(value: FormDataEntryValue | null): number | undefined {
+  if (typeof value !== "string" || value.trim() === "") return undefined;
+  const parsed = Number(value);
+  return ALLOWED_DURATIONS.has(parsed) ? parsed : undefined;
+}
+
 function parseFormats(values: FormDataEntryValue[]): ClipFormat[] {
   const formats = [...new Set(values)].filter(
     (v): v is ClipFormat => typeof v === "string" && ALLOWED_FORMATS.has(v as ClipFormat)
@@ -59,6 +66,8 @@ export async function POST(request: Request) {
   const mode = parseMode(formData.get("mode"));
   const languageId = parseLanguageId(formData.get("language"));
   const clipCount = mode === "clips" ? parseClipCount(formData.get("clipCount")) : undefined;
+  const targetDurationSeconds =
+    mode === "clips" ? parseTargetDurationSeconds(formData.get("targetDurationSeconds")) : undefined;
   const formats = parseFormats(formData.getAll("formats"));
   const removeFillers = parseBoolean(formData.get("removeFillers"));
   const watermarkFile = formData.get("watermark");
@@ -94,6 +103,7 @@ export async function POST(request: Request) {
     captionStyle,
     mode,
     clipCount,
+    targetDurationSeconds,
     languageId,
     formats,
     removeFillers,
@@ -117,6 +127,7 @@ export async function POST(request: Request) {
     captionStyle,
     mode,
     clipCount,
+    targetDurationSeconds,
     languageId,
     formats,
     removeFillers,

@@ -11,6 +11,7 @@ function groupClipsByIndex(clips: RenderedClip[]) {
       index: number;
       title?: string;
       score?: number;
+      srtUrl?: string;
       vertical?: RenderedClip;
       original?: RenderedClip;
       square?: RenderedClip;
@@ -22,6 +23,7 @@ function groupClipsByIndex(clips: RenderedClip[]) {
     group[clip.format] = clip;
     if (!group.title && clip.title) group.title = clip.title;
     if (group.score === undefined && clip.score !== undefined) group.score = clip.score;
+    if (!group.srtUrl && clip.srtUrl) group.srtUrl = clip.srtUrl;
     byIndex.set(clip.index, group);
   }
 
@@ -171,7 +173,7 @@ export default function JobViewer({ jobId }: { jobId: string }) {
 
         {job.clips.length > 0 && (
           <div className="mt-8 flex flex-col gap-5">
-            {groupClipsByIndex(job.clips).map(({ index, title, score, vertical, original, square }) => (
+            {groupClipsByIndex(job.clips).map(({ index, title, score, srtUrl, vertical, original, square }) => (
               <div
                 key={index}
                 className="flex flex-col gap-3 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm"
@@ -192,6 +194,16 @@ export default function JobViewer({ jobId }: { jobId: string }) {
                   </div>
                   {title && <CopyTitleButton title={title} />}
                 </div>
+
+                {srtUrl && (
+                  <a
+                    href={srtUrl}
+                    download
+                    className="self-start text-xs font-medium text-gray-500 underline underline-offset-2 hover:text-gray-900"
+                  >
+                    Download transcript (.srt)
+                  </a>
+                )}
 
                 <div className="flex flex-wrap items-start gap-6">
                   {vertical && (
