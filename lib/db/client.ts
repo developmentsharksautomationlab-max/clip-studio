@@ -11,5 +11,11 @@ if (!connectionString) {
   throw new Error("POSTGRES_URL is not set.");
 }
 
-const client = postgres(connectionString, { max: 1 });
+// `prepare: false` is required against Neon's pooled connection string
+// (PgBouncer in transaction-pooling mode, which doesn't support prepared
+// statements — without this, queries can hang or fail unpredictably in a
+// serverless environment where connections churn constantly).
+// `connect_timeout` makes a dead/unreachable database fail fast with a
+// clear error instead of hanging the whole request.
+const client = postgres(connectionString, { max: 1, prepare: false, connect_timeout: 10 });
 export const db = drizzle(client, { schema });
