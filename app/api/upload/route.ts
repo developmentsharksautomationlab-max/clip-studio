@@ -2,7 +2,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { createJob } from "@/lib/video/job-store";
-import { uploadDirFor } from "@/lib/video/paths";
+import { uploadDirFor, WATERMARK_LOGO_PATH } from "@/lib/video/paths";
 import { runPipeline } from "@/lib/video/pipeline";
 import { isCaptionStyleId, type CaptionChoice } from "@/lib/video/caption-styles";
 import { isLanguageId, DEFAULT_LANGUAGE_ID } from "@/lib/video/languages";
@@ -11,66 +11,171 @@ import type { ClipFormat, ClipMode } from "@/lib/video/types";
 export const runtime = "nodejs";
 
 const ALLOWED_EXTENSIONS = new Set(["mp4", "mov", "webm", "mkv", "m4v"]);
-const ALLOWED_WATERMARK_EXTENSIONS = new Set(["png", "jpg", "jpeg", "webp"]);
 const ALLOWED_FORMATS = new Set<ClipFormat>(["vertical", "original", "square"]);
 const DEFAULT_FORMATS: ClipFormat[] = ["vertical", "original"];
 const MAX_CLIP_COUNT = 20;
 const ALLOWED_DURATIONS = new Set([15, 30, 60]);
 
-function parseCaptionChoice(value: FormDataEntryValue | null): CaptionChoice {
+function parseCaptionChoice(value: string | undefined): CaptionChoice {
   if (typeof value === "string" && (value === "none" || isCaptionStyleId(value))) {
     return value;
   }
   return "none";
 }
 
-function parseMode(value: FormDataEntryValue | null): ClipMode {
+function parseMode(value: string | undefined): ClipMode {
   return value === "caption-only" ? "caption-only" : "clips";
 }
 
-function parseLanguageId(value: FormDataEntryValue | null): string {
+function parseLanguageId(value: string | undefined): string {
   if (typeof value === "string" && isLanguageId(value)) {
     return value;
   }
   return DEFAULT_LANGUAGE_ID;
 }
 
-function parseClipCount(value: FormDataEntryValue | null): number | undefined {
+function parseClipCount(value: string | undefined): number | undefined {
   if (typeof value !== "string" || value.trim() === "") return undefined;
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed < 1) return undefined;
   return Math.min(MAX_CLIP_COUNT, Math.round(parsed));
 }
 
-function parseTargetDurationSeconds(value: FormDataEntryValue | null): number | undefined {
+function parseTargetDurationSeconds(value: string | undefined): number | undefined {
   if (typeof value !== "string" || value.trim() === "") return undefined;
   const parsed = Number(value);
   return ALLOWED_DURATIONS.has(parsed) ? parsed : undefined;
 }
 
-function parseFormats(values: FormDataEntryValue[]): ClipFormat[] {
+function parseFormats(values: unknown[]): ClipFormat[] {
   const formats = [...new Set(values)].filter(
     (v): v is ClipFormat => typeof v === "string" && ALLOWED_FORMATS.has(v as ClipFormat)
   );
   return formats.length > 0 ? formats : DEFAULT_FORMATS;
 }
 
-function parseBoolean(value: FormDataEntryValue | null): boolean {
+function parseBoolean(value: string | undefined): boolean {
   return value === "true";
 }
 
-export async function POST(request: Request) {
+interface ParsedOptions {
+  captionStyle: CaptionChoice;
+  mode: ClipMode;
+  languageId: string;
+  clipCount?: number;
+  targetDurationSeconds?: number;
+  formats: ClipFormat[];
+  removeFillers: boolean;
+}
+
+function parseOptions(fields: Record<string, string | undefined>, formats: unknown[]): ParsedOptions {
+  const mode = parseMode(fields.mode);
+  return {
+    captionStyle: parseCaptionChoice(fields.captionStyle),
+    mode,
+    languageId: parseLanguageId(fields.language),
+    clipCount: mode === "clips" ? parseClipCount(fields.clipCount) : undefined,
+    targetDurationSeconds: mode === "clips" ? parseTargetDurationSeconds(fields.targetDurationSeconds) : undefined,
+    formats: parseFormats(formats),
+    removeFillers: parseBoolean(fields.removeFillers),
+  };
+}
+
+async function startJob(
+  jobId: string,
+  options: ParsedOptions,
+  job: { sourceFilename: string; sourceExt: string },
+  location: { sourceUrl?: string; localSourcePath?: string }
+) {
+  await createJob(jobId, {
+    sourceFilename: job.sourceFilename,
+    sourceExt: job.sourceExt,
+    sourceUrl: location.sourceUrl,
+    captionStyle: options.captionStyle,
+    mode: options.mode,
+    clipCount: options.clipCount,
+    targetDurationSeconds: options.targetDurationSeconds,
+    languageId: options.languageId,
+    formats: options.formats,
+    removeFillers: options.removeFillers,
+  });
+
+  if (process.env.POSTGRES_URL) {
+    // A separate worker process polls for queued jobs and runs the pipeline
+    // (see worker/index.ts) — nothing more to do here.
+    return;
+  }
+
+  if (!location.localSourcePath) {
+    throw new Error("No POSTGRES_URL configured, so this server can't hand the job off to a worker.");
+  }
+  // Every clip is branded automatically — see WATERMARK_LOGO_PATH — there's
+  // no per-upload watermark to configure.
+  runPipeline(jobId, location.localSourcePath, {
+    captionStyle: options.captionStyle,
+    mode: options.mode,
+    clipCount: options.clipCount,
+    targetDurationSeconds: options.targetDurationSeconds,
+    languageId: options.languageId,
+    formats: options.formats,
+    removeFillers: options.removeFillers,
+    watermarkPath: WATERMARK_LOGO_PATH,
+  }).catch((err) => {
+    console.error(`Pipeline failed for job ${jobId}:`, err);
+  });
+}
+
+// Blob-storage mode: the browser has already uploaded the video directly to
+// Vercel Blob — see app/page.tsx and app/api/upload/token/route.ts —
+// because Vercel's serverless functions cap request bodies far below
+// typical video sizes. This route just receives the resulting URL as JSON
+// and creates the job.
+async function handleBlobUpload(request: Request) {
+  const body = (await request.json()) as {
+    sourceUrl?: string;
+    sourceFilename?: string;
+    [key: string]: unknown;
+  };
+
+  if (!body.sourceUrl || typeof body.sourceFilename !== "string") {
+    return Response.json({ error: "Missing uploaded video." }, { status: 400 });
+  }
+
+  const ext = (body.sourceFilename.split(".").pop() || "").toLowerCase();
+  if (!ALLOWED_EXTENSIONS.has(ext)) {
+    return Response.json(
+      { error: `Unsupported file type ".${ext}". Try mp4, mov, webm, mkv, or m4v.` },
+      { status: 400 }
+    );
+  }
+
+  const fields: Record<string, string | undefined> = {
+    mode: typeof body.mode === "string" ? body.mode : undefined,
+    captionStyle: typeof body.captionStyle === "string" ? body.captionStyle : undefined,
+    language: typeof body.language === "string" ? body.language : undefined,
+    clipCount: typeof body.clipCount === "string" ? body.clipCount : undefined,
+    targetDurationSeconds: typeof body.targetDurationSeconds === "string" ? body.targetDurationSeconds : undefined,
+    removeFillers: typeof body.removeFillers === "string" ? body.removeFillers : undefined,
+  };
+  const options = parseOptions(fields, Array.isArray(body.formats) ? body.formats : []);
+
+  const jobId = randomUUID();
+  await startJob(
+    jobId,
+    options,
+    { sourceFilename: body.sourceFilename, sourceExt: ext },
+    { sourceUrl: body.sourceUrl }
+  );
+
+  return Response.json({ jobId });
+}
+
+// Local-dev mode (and any single-process deployment without Vercel Blob):
+// the video comes straight through as multipart form data and lands on
+// local disk, exactly as this route always worked.
+async function handleLocalUpload(request: Request) {
   const formData = await request.formData();
   const file = formData.get("video");
-  const captionStyle = parseCaptionChoice(formData.get("captionStyle"));
-  const mode = parseMode(formData.get("mode"));
-  const languageId = parseLanguageId(formData.get("language"));
-  const clipCount = mode === "clips" ? parseClipCount(formData.get("clipCount")) : undefined;
-  const targetDurationSeconds =
-    mode === "clips" ? parseTargetDurationSeconds(formData.get("targetDurationSeconds")) : undefined;
-  const formats = parseFormats(formData.getAll("formats"));
-  const removeFillers = parseBoolean(formData.get("removeFillers"));
-  const watermarkFile = formData.get("watermark");
 
   if (!(file instanceof File)) {
     return Response.json({ error: "No video file provided." }, { status: 400 });
@@ -84,57 +189,25 @@ export async function POST(request: Request) {
     );
   }
 
-  let watermarkFilename: string | undefined;
-  if (watermarkFile instanceof File && watermarkFile.size > 0) {
-    const wmExt = (watermarkFile.name.split(".").pop() || "").toLowerCase();
-    if (!ALLOWED_WATERMARK_EXTENSIONS.has(wmExt)) {
-      return Response.json(
-        { error: `Unsupported watermark image type ".${wmExt}". Try png, jpg, or webp.` },
-        { status: 400 }
-      );
-    }
-    watermarkFilename = `watermark.${wmExt}`;
+  const fields: Record<string, string | undefined> = {};
+  for (const key of ["mode", "captionStyle", "language", "clipCount", "targetDurationSeconds", "removeFillers"]) {
+    const value = formData.get(key);
+    if (typeof value === "string") fields[key] = value;
   }
+  const options = parseOptions(fields, formData.getAll("formats"));
 
   const jobId = randomUUID();
-  const job = await createJob(jobId, {
-    sourceFilename: file.name,
-    sourceExt: ext,
-    captionStyle,
-    mode,
-    clipCount,
-    targetDurationSeconds,
-    languageId,
-    formats,
-    removeFillers,
-    watermarkFilename,
-  });
-
   const dir = uploadDirFor(jobId);
   await fs.mkdir(dir, { recursive: true });
   const sourcePath = path.join(dir, `source.${ext}`);
-  const buffer = Buffer.from(await file.arrayBuffer());
-  await fs.writeFile(sourcePath, buffer);
+  await fs.writeFile(sourcePath, Buffer.from(await file.arrayBuffer()));
 
-  let watermarkPath: string | undefined;
-  if (watermarkFilename && watermarkFile instanceof File) {
-    watermarkPath = path.join(dir, watermarkFilename);
-    const wmBuffer = Buffer.from(await watermarkFile.arrayBuffer());
-    await fs.writeFile(watermarkPath, wmBuffer);
-  }
+  await startJob(jobId, options, { sourceFilename: file.name, sourceExt: ext }, { localSourcePath: sourcePath });
 
-  runPipeline(jobId, sourcePath, {
-    captionStyle,
-    mode,
-    clipCount,
-    targetDurationSeconds,
-    languageId,
-    formats,
-    removeFillers,
-    watermarkPath,
-  }).catch((err) => {
-    console.error(`Pipeline failed for job ${jobId}:`, err);
-  });
+  return Response.json({ jobId });
+}
 
-  return Response.json({ jobId: job.id });
+export async function POST(request: Request) {
+  const contentType = request.headers.get("content-type") || "";
+  return contentType.includes("application/json") ? handleBlobUpload(request) : handleLocalUpload(request);
 }

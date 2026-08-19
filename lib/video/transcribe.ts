@@ -1,5 +1,6 @@
-import { promises as fs } from "node:fs";
+import { promises as fs, createReadStream } from "node:fs";
 import path from "node:path";
+import OpenAI, { toFile } from "openai";
 import { runFfmpeg, probeVideo, formatDuration } from "./ffmpeg";
 import { ensureWhisperModel } from "./model";
 import { toFfmpegFilterPath } from "./paths";
@@ -95,7 +96,14 @@ function groupWordsIntoSegments(words: TranscriptWord[]): TranscriptSegment[] {
   return segments;
 }
 
-export async function transcribeVideo(
+// Local, zero-config path: runs entirely through ffmpeg's built-in (and
+// still experimental/undocumented) `whisper` audio filter. This is what
+// `npm run dev` uses by default — no API key, no model bundling, just the
+// ffmpeg binary already on PATH. Only known to work with builds compiled
+// with --enable-whisper (e.g. the gyan.dev "full" Windows builds); standard
+// Linux package-manager ffmpeg does not include it, which is why production
+// (the worker) uses transcribeWithHostedApi instead.
+async function transcribeWithFfmpegFilter(
   sourcePath: string,
   workDir: string,
   whisperLanguage: string,
@@ -147,6 +155,66 @@ export async function transcribeVideo(
 
   const transcript = await parseTranscriptFile(outputJsonPath);
   return { ...transcript, language: whisperLanguage };
+}
+
+// Production path (the worker): calls a hosted, OpenAI-compatible
+// /audio/transcriptions endpoint instead of relying on ffmpeg's whisper
+// filter. Defaults to Groq (free tier, fast Whisper models) so the worker
+// container only needs plain `ffmpeg` from apt — no whisper.cpp model files
+// to bundle or download. Swappable to any other OpenAI-compatible provider
+// via TRANSCRIPTION_API_BASE_URL.
+async function transcribeWithHostedApi(
+  sourcePath: string,
+  workDir: string,
+  whisperLanguage: string,
+  onProgress?: (message: string) => void
+): Promise<Transcript> {
+  const apiKey = process.env.TRANSCRIPTION_API_KEY || process.env.GROQ_API_KEY;
+  if (!apiKey) {
+    throw new Error("TRANSCRIPTION_API_KEY (or GROQ_API_KEY) is not set for hosted transcription.");
+  }
+  const baseURL = process.env.TRANSCRIPTION_API_BASE_URL || "https://api.groq.com/openai/v1";
+  const model = process.env.TRANSCRIPTION_MODEL || "whisper-large-v3-turbo";
+
+  await fs.mkdir(workDir, { recursive: true });
+  const audioPath = path.join(workDir, "audio.flac");
+
+  onProgress?.("Extracting audio...");
+  await runFfmpeg(["-i", sourcePath, "-vn", "-ar", "16000", "-ac", "1", "-c:a", "flac", audioPath]);
+
+  onProgress?.("Transcribing audio via hosted API...");
+  const client = new OpenAI({ apiKey, baseURL });
+  const response = await client.audio.transcriptions.create({
+    file: await toFile(createReadStream(audioPath), path.basename(audioPath)),
+    model,
+    response_format: "verbose_json",
+    timestamp_granularities: ["word"],
+    ...(whisperLanguage !== "auto" ? { language: whisperLanguage } : {}),
+  });
+
+  const words: TranscriptWord[] = (response.words ?? []).map((w) => ({
+    start: w.start,
+    end: w.end,
+    text: w.word.trim(),
+  }));
+
+  if (words.length === 0) {
+    throw new Error("Transcription produced no words. The video may be silent or unsupported.");
+  }
+
+  return { language: whisperLanguage, segments: groupWordsIntoSegments(words) };
+}
+
+export async function transcribeVideo(
+  sourcePath: string,
+  workDir: string,
+  whisperLanguage: string,
+  onProgress?: (message: string) => void
+): Promise<Transcript> {
+  const provider = process.env.TRANSCRIPTION_PROVIDER === "hosted-api" ? "hosted-api" : "ffmpeg-filter";
+  return provider === "hosted-api"
+    ? transcribeWithHostedApi(sourcePath, workDir, whisperLanguage, onProgress)
+    : transcribeWithFfmpegFilter(sourcePath, workDir, whisperLanguage, onProgress);
 }
 
 export async function parseTranscriptFile(jsonPath: string): Promise<Transcript> {

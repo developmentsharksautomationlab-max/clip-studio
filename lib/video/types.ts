@@ -58,6 +58,11 @@ export interface Job {
   updatedAt: string;
   sourceFilename: string;
   sourceExt: string;
+  // Set only in blob-storage mode: where the worker (a separate process/
+  // machine) can fetch the uploaded source video down from. In local dev
+  // this stays undefined — the pipeline just reads the convention-based
+  // local path from lib/video/paths.ts directly.
+  sourceUrl?: string;
   captionStyle: CaptionChoice;
   mode: ClipMode;
   clipCount?: number;
@@ -65,8 +70,11 @@ export interface Job {
   languageId: string;
   formats: ClipFormat[];
   removeFillers: boolean;
-  watermarkFilename?: string;
   progressMessage?: string;
   error?: string;
+  // Persisted once transcription finishes so the AI assistant can reason
+  // about the video's content after the pipeline has moved on (it would
+  // otherwise be discarded once clips are rendered).
+  transcript?: Transcript;
   clips: RenderedClip[];
 }

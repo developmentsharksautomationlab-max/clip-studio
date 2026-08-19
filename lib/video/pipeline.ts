@@ -1,9 +1,9 @@
 import { transcribeVideo } from "./transcribe";
 import { selectClipCandidates } from "./segment";
-import { renderClip } from "./render";
+import { renderAndPersistClip } from "./render-and-persist";
 import { updateJob } from "./job-store";
 import { probeVideo } from "./ffmpeg";
-import { uploadDirFor, generatedDirFor, publicUrlFor } from "./paths";
+import { uploadDirFor, generatedDirFor } from "./paths";
 import { resolveWhisperLanguage } from "./languages";
 import type { CaptionChoice } from "./caption-styles";
 import type { ClipCandidate, ClipFormat, ClipMode, RenderedClip } from "./types";
@@ -46,6 +46,7 @@ export async function runPipeline(
     await updateJob(jobId, {
       status: "segmenting",
       progressMessage: "Finding clip-worthy moments...",
+      transcript,
     });
 
     const candidates: ClipCandidate[] =
@@ -70,28 +71,15 @@ export async function runPipeline(
       const clipNumber = candidate.index + 1;
 
       for (const format of options.formats) {
-        const { srtFilename, ...rendered } = await renderClip(
-          sourcePath,
-          candidate,
-          workDir,
-          outputDir,
-          format,
-          {
-            captionStyle: options.captionStyle,
-            removeFillers: options.removeFillers,
-            watermarkPath: options.watermarkPath,
-            onProgress: (message) => {
-              reportProgress(
-                `Rendering clip ${clipNumber}/${candidates.length} (${format}): ${message}`
-              );
-            },
-          }
-        );
-        clips.push({
-          ...rendered,
-          url: publicUrlFor(jobId, rendered.filename),
-          srtUrl: publicUrlFor(jobId, srtFilename),
+        const rendered = await renderAndPersistClip(jobId, sourcePath, candidate, workDir, outputDir, format, {
+          captionStyle: options.captionStyle,
+          removeFillers: options.removeFillers,
+          watermarkPath: options.watermarkPath,
+          onProgress: (message) => {
+            reportProgress(`Rendering clip ${clipNumber}/${candidates.length} (${format}): ${message}`);
+          },
         });
+        clips.push(rendered);
       }
 
       const doneMessage = `Rendered ${clipNumber}/${candidates.length} clips`;

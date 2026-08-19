@@ -34,6 +34,31 @@ function scoreSegments(segments: TranscriptSegment[]): number {
   return Math.max(1, Math.min(99, Math.round(score)));
 }
 
+// Plain-language breakdown of scoreSegments()'s heuristic, for the AI
+// assistant's explain_clip_score tool — recomputes the same signals rather
+// than storing them, so it can never drift out of sync with the actual score.
+export function explainScore(segments: TranscriptSegment[]): string {
+  const text = segments.map((s) => s.text).join(" ");
+  const lower = text.toLowerCase();
+  const words = segments.flatMap((s) => s.words);
+  const duration = words.length > 0 ? words[words.length - 1].end - words[0].start : 0;
+  const exclamations = (text.match(/[!?]/g) ?? []).length;
+  const numbers = (text.match(/\d+/g) ?? []).length;
+  const hooks = HOOK_KEYWORDS.filter((kw) => lower.includes(kw));
+  const wordsPerSecond = duration > 0 ? words.length / duration : 0;
+
+  const notes: string[] = [
+    `Base score of 40, adjusted by a few heuristic signals (no ML — just keyword/pace matching):`,
+    `- ${exclamations} "!"/"?" mark${exclamations === 1 ? "" : "s"} (+${Math.min(20, exclamations * 6)})`,
+    `- ${numbers} number${numbers === 1 ? "" : "s"} mentioned (+${Math.min(15, numbers * 5)})`,
+    hooks.length > 0
+      ? `- ${hooks.length} hook keyword${hooks.length === 1 ? "" : "s"} detected: ${hooks.join(", ")} (+${Math.min(20, hooks.length * 5)})`
+      : `- no hook keywords detected (+0)`,
+    `- speaking pace ~${wordsPerSecond.toFixed(1)} words/sec`,
+  ];
+  return notes.join("\n");
+}
+
 function deriveTitle(segments: TranscriptSegment[]): string {
   const text = segments
     .map((s) => s.text)
@@ -99,6 +124,45 @@ export function selectClipCandidates(
   }
 
   return candidates;
+}
+
+function clipSegmentToRange(
+  segment: TranscriptSegment,
+  start: number,
+  end: number
+): TranscriptSegment | null {
+  const words = segment.words.filter((w) => w.end > start && w.start < end);
+  if (words.length === 0) return null;
+  return {
+    start: words[0].start,
+    end: words[words.length - 1].end,
+    text: words.map((w) => w.text).join(" "),
+    words,
+  };
+}
+
+// Builds a clip candidate for an arbitrary, caller-chosen time range rather
+// than one of the auto-selected candidates above — used by the AI
+// assistant's create_clip tool when someone asks for a clip of a specific
+// moment (e.g. "cut the part where I talk about pricing").
+export function buildCandidateFromRange(
+  segments: TranscriptSegment[],
+  index: number,
+  start: number,
+  end: number
+): ClipCandidate {
+  const included = segments
+    .map((s) => clipSegmentToRange(s, start, end))
+    .filter((s): s is TranscriptSegment => s !== null);
+
+  return {
+    index,
+    start,
+    end,
+    segments: included,
+    title: included.length > 0 ? deriveTitle(included) : undefined,
+    score: included.length > 0 ? scoreSegments(included) : undefined,
+  };
 }
 
 // A duration preset (15s/30s/60s) is used directly as the target length.
