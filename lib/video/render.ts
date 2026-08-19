@@ -208,10 +208,13 @@ export async function renderClip(
     // buffers) off the host's full CPU count, which can be much larger
     // than what a constrained container (e.g. a small Railway service) is
     // actually allotted — observed as ffmpeg getting OOM-killed mid-render
-    // on a host that reported 60 threads. Capped, not disabled, to still
-    // get some parallelism on genuinely small hosts.
+    // on a host that reported 60 threads. Kept low (rather than higher and
+    // sequential) because the pipeline now runs several of these renders
+    // concurrently (see RENDER_CONCURRENCY in pipeline.ts) — this and that
+    // are sized together to land on roughly the same total CPU/memory
+    // budget that a single threads=4 sequential render used before.
     "-threads",
-    "4",
+    "2",
     "-c:a",
     "aac",
     "-b:a",
