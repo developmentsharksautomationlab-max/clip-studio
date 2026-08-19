@@ -37,12 +37,16 @@ function run(bin: string, args: string[], options: RunOptions = {}): Promise<Run
       reject(new Error(`Failed to start ${bin}: ${err.message}`));
     });
 
-    child.on("close", (code) => {
+    child.on("close", (code, signal) => {
       if (code === 0) {
         resolve({ stdout, stderr });
       } else {
         const tail = stderr.split("\n").slice(-25).join("\n");
-        reject(new Error(`${bin} exited with code ${code}\n${tail}`));
+        // A null code with a signal (e.g. SIGKILL) usually means the OS
+        // killed the process — most often an out-of-memory kill on a
+        // constrained host — rather than ffmpeg itself failing.
+        const reason = signal ? `killed by signal ${signal} (likely OOM)` : `exited with code ${code}`;
+        reject(new Error(`${bin} ${reason}\n${tail}`));
       }
     });
   });

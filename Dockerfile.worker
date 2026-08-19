@@ -16,7 +16,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg fonts-no
 WORKDIR /app
 
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev && npm install --no-save tsx
+# `npm install` rather than `npm ci`: ci demands the lockfile be in exact
+# sync across every dependency (including dev-only ones, even though
+# --omit=dev then skips installing them), which is stricter than this
+# container actually needs.
+RUN npm install --omit=dev && npm install --no-save tsx
 
 COPY lib ./lib
 COPY worker ./worker

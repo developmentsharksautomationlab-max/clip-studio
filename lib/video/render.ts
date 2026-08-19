@@ -204,6 +204,14 @@ export async function renderClip(
     "20",
     "-pix_fmt",
     "yuv420p",
+    // Without this, x264 sizes its thread pool (and per-thread encode
+    // buffers) off the host's full CPU count, which can be much larger
+    // than what a constrained container (e.g. a small Railway service) is
+    // actually allotted — observed as ffmpeg getting OOM-killed mid-render
+    // on a host that reported 60 threads. Capped, not disabled, to still
+    // get some parallelism on genuinely small hosts.
+    "-threads",
+    "4",
     "-c:a",
     "aac",
     "-b:a",
