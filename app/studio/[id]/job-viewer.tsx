@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import type { Job, JobStatus, RenderedClip } from "@/lib/video/types";
+import { CLIPS_CHANGED_EVENT } from "@/app/components/chat-panel";
 
 function groupClipsByIndex(clips: RenderedClip[]) {
   const byIndex = new Map<
@@ -38,6 +39,36 @@ const STAGE_LABELS: Record<JobStatus, string> = {
   done: "Done",
   error: "Error",
 };
+
+const STAGE_ORDER: JobStatus[] = ["queued", "transcribing", "segmenting", "rendering", "done"];
+
+function ProgressSteps({ status }: { status: JobStatus }) {
+  const currentIndex = STAGE_ORDER.indexOf(status);
+  return (
+    <div className="flex items-center gap-1.5">
+      {STAGE_ORDER.slice(0, -1).map((stage, i) => (
+        <span
+          key={stage}
+          className={`h-1.5 flex-1 rounded-full transition-colors ${
+            i < currentIndex ? "bg-emerald-500" : i === currentIndex ? "bg-gray-900" : "bg-gray-200"
+          }`}
+        />
+      ))}
+    </div>
+  );
+}
+
+function ScoreBar({ score }: { score: number }) {
+  const color = score >= 70 ? "bg-emerald-500" : score >= 45 ? "bg-amber-400" : "bg-gray-300";
+  return (
+    <div className="flex items-center gap-1.5" title={`Shareability score: ${score}/100`}>
+      <div className="h-1.5 w-14 overflow-hidden rounded-full bg-gray-100">
+        <div className={`h-full rounded-full ${color}`} style={{ width: `${score}%` }} />
+      </div>
+      <span className="text-[11px] font-medium text-gray-500">{score}</span>
+    </div>
+  );
+}
 
 function Spinner() {
   return (
@@ -92,15 +123,39 @@ function StatusScreen({ children }: { children: React.ReactNode }) {
 export default function JobViewer({ jobId }: { jobId: string }) {
   const [job, setJob] = useState<Job | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const cancelledRef = useRef(false);
+
+  const refetchJob = useCallback(async () => {
+    const res = await fetch(`/api/jobs/${jobId}`, { cache: "no-store" });
+    if (cancelledRef.current) return;
+    if (!res.ok) {
+      setLoadError("Job not found.");
+      return;
+    }
+    const data = await res.json();
+    setJob(data.job);
+  }, [jobId]);
+
+  // The chat widget lives outside this page (see app/components/chat-widget)
+  // so it keeps working from other pages too — it announces clip changes via
+  // this event instead of a prop, since it isn't in this component's tree.
+  useEffect(() => {
+    function handleClipsChanged(e: Event) {
+      const detail = (e as CustomEvent<{ jobId: string }>).detail;
+      if (detail?.jobId === jobId) refetchJob();
+    }
+    window.addEventListener(CLIPS_CHANGED_EVENT, handleClipsChanged);
+    return () => window.removeEventListener(CLIPS_CHANGED_EVENT, handleClipsChanged);
+  }, [jobId, refetchJob]);
 
   useEffect(() => {
-    let cancelled = false;
+    cancelledRef.current = false;
     const interval = setInterval(poll, 2000);
 
     async function poll() {
-      if (cancelled) return;
+      if (cancelledRef.current) return;
       const res = await fetch(`/api/jobs/${jobId}`, { cache: "no-store" });
-      if (cancelled) return;
+      if (cancelledRef.current) return;
       if (!res.ok) {
         setLoadError("Job not found.");
         clearInterval(interval);
@@ -116,7 +171,7 @@ export default function JobViewer({ jobId }: { jobId: string }) {
     poll();
 
     return () => {
-      cancelled = true;
+      cancelledRef.current = true;
       clearInterval(interval);
     };
   }, [jobId]);
@@ -160,14 +215,18 @@ export default function JobViewer({ jobId }: { jobId: string }) {
         <h1 className="text-2xl font-semibold tracking-tight text-gray-900">
           {job.mode === "caption-only" ? "Your video" : "Your clips"}
         </h1>
+        <p className="mt-1 truncate text-sm text-gray-500">{job.sourceFilename}</p>
 
         {job.status !== "done" && (
-          <div className="mt-6 flex items-center gap-3 rounded-2xl border border-gray-200 bg-white px-5 py-4 shadow-sm">
-            <Spinner />
-            <div>
-              <p className="text-sm font-medium text-gray-900">{STAGE_LABELS[job.status]}</p>
-              {job.progressMessage && <p className="text-sm text-gray-500">{job.progressMessage}</p>}
+          <div className="mt-6 flex flex-col gap-4 rounded-2xl border border-gray-200 bg-white px-5 py-4 shadow-sm">
+            <div className="flex items-center gap-3">
+              <Spinner />
+              <div>
+                <p className="text-sm font-medium text-gray-900">{STAGE_LABELS[job.status]}</p>
+                {job.progressMessage && <p className="text-sm text-gray-500">{job.progressMessage}</p>}
+              </div>
             </div>
+            <ProgressSteps status={job.status} />
           </div>
         )}
 
@@ -189,6 +248,7 @@ export default function JobViewer({ jobId }: { jobId: string }) {
                           Suggested
                         </span>
                       )}
+                      {score !== undefined && <ScoreBar score={score} />}
                     </div>
                     {title && <p className="text-sm font-medium text-gray-900">{title}</p>}
                   </div>

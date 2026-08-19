@@ -41,6 +41,25 @@ function formatDate(iso: string): string {
   });
 }
 
+function EmptyState() {
+  return (
+    <div className="mt-6 flex flex-col items-center gap-3 rounded-2xl border border-dashed border-gray-300 bg-white px-6 py-16 text-center">
+      <svg viewBox="0 0 24 24" fill="none" className="h-10 w-10 text-gray-300">
+        <rect x="3" y="5" width="18" height="14" rx="3" stroke="currentColor" strokeWidth="1.5" />
+        <path d="M10 9.5 15 12 10 14.5V9.5Z" fill="currentColor" />
+      </svg>
+      <p className="text-sm font-medium text-gray-900">No videos processed yet</p>
+      <p className="text-sm text-gray-500">Your rendered jobs will show up here once you generate some clips.</p>
+      <Link
+        href="/"
+        className="mt-2 rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-gray-700"
+      >
+        Upload a video
+      </Link>
+    </div>
+  );
+}
+
 export default function HistoryPage() {
   const [jobs, setJobs] = useState<JobSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -69,7 +88,10 @@ export default function HistoryPage() {
     <main className="flex flex-1 flex-col bg-gray-50">
       <div className="mx-auto w-full max-w-3xl px-6 py-12">
         <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-semibold tracking-tight text-gray-900">Job history</h1>
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight text-gray-900">Job history</h1>
+            <p className="mt-1 text-sm text-gray-500">Every video you&apos;ve sent through Clip Studio.</p>
+          </div>
           <Link
             href="/"
             className="rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-gray-700"
@@ -80,11 +102,18 @@ export default function HistoryPage() {
 
         {error && <p className="mt-6 text-sm text-red-600">{error}</p>}
 
-        {!error && jobs === null && <p className="mt-6 text-sm text-gray-500">Loading...</p>}
-
-        {jobs !== null && jobs.length === 0 && (
-          <p className="mt-6 text-sm text-gray-500">No videos processed yet.</p>
+        {!error && jobs === null && (
+          <div className="mt-6 flex flex-col divide-y divide-gray-200 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="flex items-center justify-between gap-4 px-5 py-4">
+                <div className="h-4 w-40 animate-pulse rounded bg-gray-100" />
+                <div className="h-5 w-16 animate-pulse rounded-full bg-gray-100" />
+              </div>
+            ))}
+          </div>
         )}
+
+        {jobs !== null && jobs.length === 0 && <EmptyState />}
 
         {jobs !== null && jobs.length > 0 && (
           <div className="mt-6 flex flex-col divide-y divide-gray-200 rounded-2xl border border-gray-200 bg-white shadow-sm">

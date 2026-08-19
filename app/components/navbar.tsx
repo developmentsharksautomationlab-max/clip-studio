@@ -7,11 +7,11 @@ export default function Navbar() {
       <div className="mx-auto flex max-w-4xl items-center justify-between gap-2.5 px-6 py-3.5">
         <Link href="/" className="flex items-center gap-2.5">
           <Image
-            src="/image.png"
-            alt="Logo"
+            src="/logo.svg"
+            alt="Clip Studio logo"
             width={28}
             height={28}
-            className="h-7 w-7 rounded-md object-cover"
+            className="h-7 w-7 rounded-lg"
           />
           <span className="text-[15px] font-semibold tracking-tight text-gray-900">Clip Studio</span>
         </Link>

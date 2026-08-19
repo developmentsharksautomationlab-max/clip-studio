@@ -2,6 +2,7 @@
 
 import { useState, type DragEvent, type SubmitEvent } from "react";
 import { useRouter } from "next/navigation";
+import { upload } from "@vercel/blob/client";
 import {
   CAPTION_STYLES,
   CAPTION_STYLE_ORDER,
@@ -9,6 +10,13 @@ import {
 } from "@/lib/video/caption-styles";
 import { LANGUAGE_OPTIONS, DEFAULT_LANGUAGE_ID } from "@/lib/video/languages";
 import type { ClipFormat, ClipMode } from "@/lib/video/types";
+
+// Set at build time alongside BLOB_READ_WRITE_TOKEN when deploying to
+// Vercel. When on, videos are uploaded directly from the browser to Vercel
+// Blob (see /api/upload/token) instead of through this app's own API route,
+// because Vercel's serverless functions cap request bodies far below
+// typical video file sizes.
+const BLOB_UPLOADS_ENABLED = process.env.NEXT_PUBLIC_BLOB_UPLOADS_ENABLED === "1";
 
 const FORMAT_OPTIONS: { id: ClipFormat; label: string; hint: string }[] = [
   { id: "vertical", label: "Vertical", hint: "9:16" },
@@ -23,6 +31,34 @@ const DURATION_OPTIONS: { id: number; label: string }[] = [
 ];
 
 const OUTLINE_SHADOW = "-1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000";
+
+function UploadIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className="h-6 w-6 text-gray-400">
+      <path
+        d="M12 16V4m0 0 4 4m-4-4-4 4M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function WatermarkBadge() {
+  return (
+    <div className="mt-8 flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+      <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5 shrink-0 text-amber-500">
+        <rect x="4" y="4" width="16" height="16" rx="4" fill="currentColor" opacity="0.15" />
+        <path d="M9 8v8l7-4-7-4Z" fill="currentColor" />
+      </svg>
+      <p className="text-xs leading-snug text-amber-800">
+        Every clip is branded with the Clip Studio watermark automatically — no setup needed.
+      </p>
+    </div>
+  );
+}
 
 function StylePreview({ styleId }: { styleId: CaptionStyleId }) {
   const style = CAPTION_STYLES[styleId];
@@ -70,8 +106,6 @@ export default function Home() {
   const [captionStyle, setCaptionStyle] = useState<CaptionStyleId>("bold-impact");
   const [formats, setFormats] = useState<Set<ClipFormat>>(new Set(["vertical", "original"]));
   const [removeFillers, setRemoveFillers] = useState(true);
-  const [watermarkEnabled, setWatermarkEnabled] = useState(false);
-  const [watermarkFile, setWatermarkFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -95,6 +129,61 @@ export default function Home() {
     if (dropped) setFile(dropped);
   }
 
+  async function submitViaFormData() {
+    if (!file) return;
+    const formData = new FormData();
+    formData.append("video", file);
+    formData.append("mode", mode);
+    if (mode === "clips" && targetDuration !== null) {
+      formData.append("targetDurationSeconds", String(targetDuration));
+    } else if (mode === "clips" && clipCount.trim() !== "") {
+      formData.append("clipCount", clipCount.trim());
+    }
+    formData.append("language", language);
+    formData.append("captionStyle", captionsEnabled ? captionStyle : "none");
+    for (const format of formats) formData.append("formats", format);
+    formData.append("removeFillers", String(removeFillers));
+
+    const res = await fetch("/api/upload", { method: "POST", body: formData });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Upload failed.");
+    return data.jobId as string;
+  }
+
+  // Blob mode: upload straight from the browser to Vercel Blob (bypassing
+  // this app's own server, which can't accept large request bodies), then
+  // send the resulting URL to /api/upload as JSON to create the job.
+  async function submitViaBlob() {
+    if (!file) return;
+    const uploadId = crypto.randomUUID();
+
+    const sourceBlob = await upload(`uploads/${uploadId}/${file.name}`, file, {
+      access: "public",
+      handleUploadUrl: "/api/upload/token",
+      multipart: true,
+    });
+
+    const res = await fetch("/api/upload", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        sourceUrl: sourceBlob.url,
+        sourceFilename: file.name,
+        mode,
+        targetDurationSeconds:
+          mode === "clips" && targetDuration !== null ? String(targetDuration) : undefined,
+        clipCount: mode === "clips" && clipCount.trim() !== "" ? clipCount.trim() : undefined,
+        language,
+        captionStyle: captionsEnabled ? captionStyle : "none",
+        formats: [...formats],
+        removeFillers: String(removeFillers),
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Upload failed.");
+    return data.jobId as string;
+  }
+
   async function handleSubmit(e: SubmitEvent) {
     e.preventDefault();
     if (!file) return;
@@ -103,30 +192,9 @@ export default function Home() {
     setError(null);
 
     try {
-      const formData = new FormData();
-      formData.append("video", file);
-      formData.append("mode", mode);
-      if (mode === "clips" && targetDuration !== null) {
-        formData.append("targetDurationSeconds", String(targetDuration));
-      } else if (mode === "clips" && clipCount.trim() !== "") {
-        formData.append("clipCount", clipCount.trim());
-      }
-      formData.append("language", language);
-      formData.append("captionStyle", captionsEnabled ? captionStyle : "none");
-      for (const format of formats) formData.append("formats", format);
-      formData.append("removeFillers", String(removeFillers));
-      if (watermarkEnabled && watermarkFile) {
-        formData.append("watermark", watermarkFile);
-      }
-
-      const res = await fetch("/api/upload", { method: "POST", body: formData });
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error || "Upload failed.");
-      }
-
-      router.push(`/studio/${data.jobId}`);
+      const jobId = await (BLOB_UPLOADS_ENABLED ? submitViaBlob() : submitViaFormData());
+      if (!jobId) throw new Error("Upload failed.");
+      router.push(`/studio/${jobId}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload failed.");
       setUploading(false);
@@ -134,14 +202,24 @@ export default function Home() {
   }
 
   return (
-    <main className="flex flex-1 flex-col bg-gray-50">
+    <main className="flex flex-1 flex-col bg-gradient-to-b from-amber-50/60 via-gray-50 to-gray-50">
       <div className="mx-auto w-full max-w-2xl px-6 py-16">
         <div className="mb-10 text-center">
-          <h1 className="text-3xl font-semibold tracking-tight text-gray-900">
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-medium text-gray-600 shadow-sm">
+            <svg viewBox="0 0 24 24" fill="none" className="h-3.5 w-3.5 text-amber-500">
+              <path
+                d="M12 2 14 9 21 12 14 15 12 22 10 15 3 12 10 9 12 2Z"
+                fill="currentColor"
+              />
+            </svg>
+            AI-assisted, in every clip
+          </span>
+          <h1 className="mt-4 text-3xl font-semibold tracking-tight text-gray-900 sm:text-4xl">
             Turn long videos into scroll-stopping clips
           </h1>
           <p className="mt-3 text-gray-600">
             Upload a video and get short, captioned clips — ready in vertical or original size.
+            An AI assistant on the next screen can find moments and cut new clips for you on request.
           </p>
         </div>
 
@@ -163,6 +241,7 @@ export default function Home() {
               className="hidden"
               onChange={(e) => setFile(e.target.files?.[0] ?? null)}
             />
+            <UploadIcon />
             <span className="text-sm font-medium text-gray-900">
               {file ? file.name : "Click to choose a video, or drag one here"}
             </span>
@@ -349,32 +428,7 @@ export default function Home() {
             )}
           </div>
 
-          <div className="mt-8">
-            <label className="flex cursor-pointer items-center justify-between">
-              <SectionLabel>Add watermark</SectionLabel>
-              <input
-                type="checkbox"
-                checked={watermarkEnabled}
-                onChange={(e) => setWatermarkEnabled(e.target.checked)}
-                className="h-4 w-4 rounded border-gray-300 accent-gray-900"
-              />
-            </label>
-
-            {watermarkEnabled && (
-              <label className="mt-3 flex cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-gray-300 px-6 py-6 text-center transition-colors hover:border-gray-400">
-                <input
-                  type="file"
-                  accept="image/png,image/jpeg,image/webp"
-                  className="hidden"
-                  onChange={(e) => setWatermarkFile(e.target.files?.[0] ?? null)}
-                />
-                <span className="text-sm font-medium text-gray-900">
-                  {watermarkFile ? watermarkFile.name : "Click to choose a logo image"}
-                </span>
-                <span className="text-xs text-gray-500">PNG, JPG, or WEBP — placed bottom-right</span>
-              </label>
-            )}
-          </div>
+          <WatermarkBadge />
 
           {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
 
