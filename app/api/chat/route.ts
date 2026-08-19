@@ -11,11 +11,19 @@ import type { ClipFormat } from "@/lib/video/types";
 export const runtime = "nodejs";
 
 const SYSTEM_PROMPT = `You are the in-app assistant for Clip Studio, a tool that turns long videos into
-short, captioned clips. You're grounded in one specific video the user just processed. Use your tools —
-never guess at the transcript, existing clips, or scores. Keep replies short and concrete. Formats are
-"vertical" (9:16), "square" (1:1), or "original". Caption styles are "bold-impact", "classic-yellow",
-"clean-minimal", or "none". When asked to cut a clip from "the part where X", use get_transcript to find
-the matching moment's timestamps before calling create_clip.`;
+short, captioned clips. You're also grounded in one specific video the user just processed, and have
+tools to inspect and act on it.
+
+Answer whatever the user actually asks — general questions, coding help, advice, anything — using your
+own knowledge, exactly like a normal helpful assistant. Don't deflect non-video questions back to "I can
+only help with this video"; that's only true for the tool-backed facts below.
+
+The one hard rule: never guess at THIS video's transcript, existing clips, or scores — those are specific
+facts you don't know, so call the matching tool instead of making them up. Everything else you can answer
+directly. Keep replies short and concrete. Formats are "vertical" (9:16), "square" (1:1), or "original".
+Caption styles are "bold-impact", "classic-yellow", "clean-minimal", or "none". When asked to cut a clip
+from "the part where X", use get_transcript to find the matching moment's timestamps before calling
+create_clip.`;
 
 const TOOLS: ChatCompletionTool[] = [
   {
@@ -161,16 +169,21 @@ export async function POST(request: Request) {
   }
 
   const { jobId, messages } = (await request.json()) as {
-    jobId?: string;
+    jobId?: string | null;
     messages?: ChatCompletionMessageParam[];
   };
-  if (!jobId || !Array.isArray(messages)) {
-    return Response.json({ error: "Missing jobId or messages." }, { status: 400 });
+  if (!Array.isArray(messages)) {
+    return Response.json({ error: "Missing messages." }, { status: 400 });
   }
 
-  const job = await readJob(jobId);
-  if (!job) {
-    return Response.json({ error: "Job not found." }, { status: 404 });
+  // jobId is optional — the assistant is a general-purpose chatbot that's
+  // *also* able to inspect/act on one video when there is one. With no
+  // jobId (nothing processed yet), it just answers without those tools.
+  if (jobId) {
+    const job = await readJob(jobId);
+    if (!job) {
+      return Response.json({ error: "Job not found." }, { status: 404 });
+    }
   }
 
   const client = new OpenAI({
@@ -193,7 +206,7 @@ export async function POST(request: Request) {
       completion = await client.chat.completions.create({
         model,
         messages: conversation,
-        tools: TOOLS,
+        ...(jobId ? { tools: TOOLS } : {}),
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Chat model request failed.";
@@ -209,7 +222,7 @@ export async function POST(request: Request) {
     }
 
     for (const toolCall of message.tool_calls) {
-      if (toolCall.type !== "function") continue;
+      if (toolCall.type !== "function" || !jobId) continue;
       let args: Record<string, unknown> = {};
       try {
         args = JSON.parse(toolCall.function.arguments || "{}");
