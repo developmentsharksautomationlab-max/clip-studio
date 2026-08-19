@@ -49,7 +49,17 @@ export default function ChatWidget() {
     return <ChatPanel key={studioJobId} jobId={studioJobId} />;
   }
 
-  if (!checkedFallback || !fallbackJob) return null;
+  // Always render the button, even before we know if there's a finished
+  // job to ground it in — a widget that sometimes silently doesn't appear
+  // reads as broken. ChatPanel shows a friendly empty state instead when
+  // jobId is null (see there).
+  if (!checkedFallback) return null;
 
-  return <ChatPanel key={fallbackJob.id} jobId={fallbackJob.id} contextLabel={fallbackJob.sourceFilename} />;
+  return (
+    <ChatPanel
+      key={fallbackJob?.id ?? "none"}
+      jobId={fallbackJob?.id ?? null}
+      contextLabel={fallbackJob?.sourceFilename}
+    />
+  );
 }

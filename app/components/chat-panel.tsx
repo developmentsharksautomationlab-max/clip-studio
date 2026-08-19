@@ -17,7 +17,7 @@ export default function ChatPanel({
   jobId,
   contextLabel,
 }: {
-  jobId: string;
+  jobId: string | null;
   contextLabel?: string;
 }) {
   const [open, setOpen] = useState(false);
@@ -36,7 +36,7 @@ export default function ChatPanel({
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     const text = input.trim();
-    if (!text || sending) return;
+    if (!text || sending || !jobId) return;
 
     const nextMessages: ChatMessage[] = [...messages, { role: "user", content: text }];
     setMessages(nextMessages);
@@ -104,7 +104,13 @@ export default function ChatPanel({
       </div>
 
       <div ref={listRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-3">
-        {messages.length === 0 && (
+        {!jobId && (
+          <p className="text-sm text-gray-500">
+            I don&apos;t have a video to talk about yet — upload one and come back once it&apos;s
+            done processing, then I can find moments, explain scores, or cut new clips for you.
+          </p>
+        )}
+        {jobId && messages.length === 0 && (
           <p className="text-sm text-gray-500">
             Ask about this video — &quot;what&apos;s the most quotable moment?&quot;, &quot;why did clip 2
             score higher?&quot;, or &quot;cut a clip from 1:20 to 1:45&quot;.
@@ -132,12 +138,13 @@ export default function ChatPanel({
           type="text"
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Ask something..."
-          className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-gray-900 focus:outline-none"
+          disabled={!jobId}
+          placeholder={jobId ? "Ask something..." : "Upload a video first"}
+          className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-gray-900 focus:outline-none disabled:bg-gray-50 disabled:text-gray-400"
         />
         <button
           type="submit"
-          disabled={sending || !input.trim()}
+          disabled={sending || !input.trim() || !jobId}
           className="rounded-lg bg-gray-900 px-3 py-2 text-sm font-semibold text-white disabled:opacity-40"
         >
           Send
