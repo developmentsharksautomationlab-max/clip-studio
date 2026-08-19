@@ -195,6 +195,23 @@ async function handleBlobUpload(request: Request) {
 // the video comes straight through as multipart form data and lands on
 // local disk, exactly as this route always worked.
 async function handleLocalUpload(request: Request) {
+  // A production deployment (POSTGRES_URL set) only ever works via blob
+  // mode — there's no local worker to pick up a job created this way, and
+  // its source file would be gone the moment this request ends anyway
+  // (Vercel's /tmp doesn't survive between invocations). Reaching this
+  // branch in production means the browser is running a stale cached page
+  // from before blob uploads were enabled — fail clearly now instead of
+  // creating a job that can never complete.
+  if (process.env.POSTGRES_URL) {
+    return Response.json(
+      {
+        error:
+          "This upload method isn't supported on this deployment. Please refresh the page (hard refresh) and try uploading again.",
+      },
+      { status: 400 }
+    );
+  }
+
   const formData = await request.formData();
   const file = formData.get("video");
 
