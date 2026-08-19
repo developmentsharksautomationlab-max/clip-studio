@@ -73,9 +73,9 @@ requests on existing jobs, the same way it watches for new queued jobs.
 1. **Database** — create a free Neon Postgres project (or any Postgres). Set `POSTGRES_URL` on both
    the Vercel project and the worker host. Run `npm run db:push` once to create the `jobs` table.
 2. **Blob storage** — create a Vercel Blob store from the Vercel dashboard and link it to the
-   project (fills in `BLOB_READ_WRITE_TOKEN` for you). Set the same token on the worker host. Set
-   `NEXT_PUBLIC_BLOB_UPLOADS_ENABLED=1` on the Vercel project so the upload form switches to direct
-   browser-to-blob uploads.
+   project (fills in `BLOB_READ_WRITE_TOKEN` for you). Set the same token on the worker host. The
+   upload form checks `/api/config` live and switches to direct browser-to-blob uploads
+   automatically once this is set — no separate flag or rebuild needed.
 3. **Groq** — create a free key at console.groq.com. Set `GROQ_API_KEY` on both the Vercel project
    and the worker; set `TRANSCRIPTION_PROVIDER=hosted-api` on the worker only (Dockerfile.worker
    already does this).

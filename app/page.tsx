@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type DragEvent, type SubmitEvent } from "react";
+import { useEffect, useState, type DragEvent, type SubmitEvent } from "react";
 import { useRouter } from "next/navigation";
 import { upload } from "@vercel/blob/client";
 import {
@@ -11,13 +11,6 @@ import {
 import { LANGUAGE_OPTIONS, DEFAULT_LANGUAGE_ID } from "@/lib/video/languages";
 import { CAPTION_LANGUAGE_OPTIONS, DEFAULT_CAPTION_LANGUAGE_ID } from "@/lib/video/caption-languages";
 import type { ClipFormat, ClipMode } from "@/lib/video/types";
-
-// Set at build time alongside BLOB_READ_WRITE_TOKEN when deploying to
-// Vercel. When on, videos are uploaded directly from the browser to Vercel
-// Blob (see /api/upload/token) instead of through this app's own API route,
-// because Vercel's serverless functions cap request bodies far below
-// typical video file sizes.
-const BLOB_UPLOADS_ENABLED = process.env.NEXT_PUBLIC_BLOB_UPLOADS_ENABLED === "1";
 
 const FORMAT_OPTIONS: { id: ClipFormat; label: string; hint: string }[] = [
   { id: "vertical", label: "Vertical", hint: "9:16" },
@@ -110,6 +103,23 @@ export default function Home() {
   const [removeFillers, setRemoveFillers] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [blobUploadsEnabled, setBlobUploadsEnabled] = useState(false);
+
+  // Checked live from the server rather than baked in at build time — see
+  // app/api/config/route.ts for why (a build-time flag here could silently
+  // go stale whenever env vars changed without a fresh deploy).
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/config", { cache: "no-store" })
+      .then((res) => res.json())
+      .then((data: { blobUploadsEnabled?: boolean }) => {
+        if (!cancelled) setBlobUploadsEnabled(Boolean(data.blobUploadsEnabled));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   function toggleFormat(id: ClipFormat) {
     setFormats((prev) => {
@@ -196,7 +206,7 @@ export default function Home() {
     setError(null);
 
     try {
-      const jobId = await (BLOB_UPLOADS_ENABLED ? submitViaBlob() : submitViaFormData());
+      const jobId = await (blobUploadsEnabled ? submitViaBlob() : submitViaFormData());
       if (!jobId) throw new Error("Upload failed.");
       router.push(`/studio/${jobId}`);
     } catch (err) {
