@@ -5,6 +5,8 @@ import { updateJob } from "./job-store";
 import { probeVideo } from "./ffmpeg";
 import { uploadDirFor, generatedDirFor } from "./paths";
 import { resolveWhisperLanguage } from "./languages";
+import { resolveCaptionLanguageInstruction } from "./caption-languages";
+import { translateSegments } from "./translate";
 import type { CaptionChoice } from "./caption-styles";
 import type { ClipCandidate, ClipFormat, ClipMode, RenderedClip } from "./types";
 
@@ -14,6 +16,7 @@ export interface RunPipelineOptions {
   clipCount?: number;
   targetDurationSeconds?: number;
   languageId: string;
+  captionLanguageId?: string;
   formats: ClipFormat[];
   removeFillers: boolean;
   watermarkPath?: string;
@@ -42,6 +45,11 @@ export async function runPipeline(
     });
     const whisperLanguage = resolveWhisperLanguage(options.languageId);
     const transcript = await transcribeVideo(sourcePath, workDir, whisperLanguage, reportProgress);
+
+    const translationInstruction = resolveCaptionLanguageInstruction(options.captionLanguageId);
+    if (translationInstruction) {
+      transcript.segments = await translateSegments(transcript.segments, translationInstruction, reportProgress);
+    }
 
     await updateJob(jobId, {
       status: "segmenting",

@@ -6,6 +6,7 @@ import { uploadDirFor, WATERMARK_LOGO_PATH } from "@/lib/video/paths";
 import { runPipeline } from "@/lib/video/pipeline";
 import { isCaptionStyleId, type CaptionChoice } from "@/lib/video/caption-styles";
 import { isLanguageId, DEFAULT_LANGUAGE_ID } from "@/lib/video/languages";
+import { isCaptionLanguageId, DEFAULT_CAPTION_LANGUAGE_ID } from "@/lib/video/caption-languages";
 import type { ClipFormat, ClipMode } from "@/lib/video/types";
 
 export const runtime = "nodejs";
@@ -32,6 +33,13 @@ function parseLanguageId(value: string | undefined): string {
     return value;
   }
   return DEFAULT_LANGUAGE_ID;
+}
+
+function parseCaptionLanguageId(value: string | undefined): string {
+  if (typeof value === "string" && isCaptionLanguageId(value)) {
+    return value;
+  }
+  return DEFAULT_CAPTION_LANGUAGE_ID;
 }
 
 function parseClipCount(value: string | undefined): number | undefined {
@@ -62,6 +70,7 @@ interface ParsedOptions {
   captionStyle: CaptionChoice;
   mode: ClipMode;
   languageId: string;
+  captionLanguageId: string;
   clipCount?: number;
   targetDurationSeconds?: number;
   formats: ClipFormat[];
@@ -74,6 +83,7 @@ function parseOptions(fields: Record<string, string | undefined>, formats: unkno
     captionStyle: parseCaptionChoice(fields.captionStyle),
     mode,
     languageId: parseLanguageId(fields.language),
+    captionLanguageId: parseCaptionLanguageId(fields.captionLanguage),
     clipCount: mode === "clips" ? parseClipCount(fields.clipCount) : undefined,
     targetDurationSeconds: mode === "clips" ? parseTargetDurationSeconds(fields.targetDurationSeconds) : undefined,
     formats: parseFormats(formats),
@@ -96,6 +106,7 @@ async function startJob(
     clipCount: options.clipCount,
     targetDurationSeconds: options.targetDurationSeconds,
     languageId: options.languageId,
+    captionLanguageId: options.captionLanguageId,
     formats: options.formats,
     removeFillers: options.removeFillers,
   });
@@ -117,6 +128,7 @@ async function startJob(
     clipCount: options.clipCount,
     targetDurationSeconds: options.targetDurationSeconds,
     languageId: options.languageId,
+    captionLanguageId: options.captionLanguageId,
     formats: options.formats,
     removeFillers: options.removeFillers,
     watermarkPath: WATERMARK_LOGO_PATH,
@@ -153,6 +165,7 @@ async function handleBlobUpload(request: Request) {
     mode: typeof body.mode === "string" ? body.mode : undefined,
     captionStyle: typeof body.captionStyle === "string" ? body.captionStyle : undefined,
     language: typeof body.language === "string" ? body.language : undefined,
+    captionLanguage: typeof body.captionLanguage === "string" ? body.captionLanguage : undefined,
     clipCount: typeof body.clipCount === "string" ? body.clipCount : undefined,
     targetDurationSeconds: typeof body.targetDurationSeconds === "string" ? body.targetDurationSeconds : undefined,
     removeFillers: typeof body.removeFillers === "string" ? body.removeFillers : undefined,
@@ -160,12 +173,20 @@ async function handleBlobUpload(request: Request) {
   const options = parseOptions(fields, Array.isArray(body.formats) ? body.formats : []);
 
   const jobId = randomUUID();
-  await startJob(
-    jobId,
-    options,
-    { sourceFilename: body.sourceFilename, sourceExt: ext },
-    { sourceUrl: body.sourceUrl }
-  );
+  try {
+    await startJob(
+      jobId,
+      options,
+      { sourceFilename: body.sourceFilename, sourceExt: ext },
+      { sourceUrl: body.sourceUrl }
+    );
+  } catch (err) {
+    console.error(`Failed to start job ${jobId}:`, err);
+    return Response.json(
+      { error: err instanceof Error ? err.message : "Failed to create job." },
+      { status: 500 }
+    );
+  }
 
   return Response.json({ jobId });
 }
@@ -190,7 +211,15 @@ async function handleLocalUpload(request: Request) {
   }
 
   const fields: Record<string, string | undefined> = {};
-  for (const key of ["mode", "captionStyle", "language", "clipCount", "targetDurationSeconds", "removeFillers"]) {
+  for (const key of [
+    "mode",
+    "captionStyle",
+    "language",
+    "captionLanguage",
+    "clipCount",
+    "targetDurationSeconds",
+    "removeFillers",
+  ]) {
     const value = formData.get(key);
     if (typeof value === "string") fields[key] = value;
   }
@@ -202,7 +231,15 @@ async function handleLocalUpload(request: Request) {
   const sourcePath = path.join(dir, `source.${ext}`);
   await fs.writeFile(sourcePath, Buffer.from(await file.arrayBuffer()));
 
-  await startJob(jobId, options, { sourceFilename: file.name, sourceExt: ext }, { localSourcePath: sourcePath });
+  try {
+    await startJob(jobId, options, { sourceFilename: file.name, sourceExt: ext }, { localSourcePath: sourcePath });
+  } catch (err) {
+    console.error(`Failed to start job ${jobId}:`, err);
+    return Response.json(
+      { error: err instanceof Error ? err.message : "Failed to create job." },
+      { status: 500 }
+    );
+  }
 
   return Response.json({ jobId });
 }

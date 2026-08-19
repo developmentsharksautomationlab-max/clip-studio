@@ -9,6 +9,7 @@ import {
   type CaptionStyleId,
 } from "@/lib/video/caption-styles";
 import { LANGUAGE_OPTIONS, DEFAULT_LANGUAGE_ID } from "@/lib/video/languages";
+import { CAPTION_LANGUAGE_OPTIONS, DEFAULT_CAPTION_LANGUAGE_ID } from "@/lib/video/caption-languages";
 import type { ClipFormat, ClipMode } from "@/lib/video/types";
 
 // Set at build time alongside BLOB_READ_WRITE_TOKEN when deploying to
@@ -102,6 +103,7 @@ export default function Home() {
   const [clipCount, setClipCount] = useState("");
   const [targetDuration, setTargetDuration] = useState<number | null>(null);
   const [language, setLanguage] = useState(DEFAULT_LANGUAGE_ID);
+  const [captionLanguage, setCaptionLanguage] = useState(DEFAULT_CAPTION_LANGUAGE_ID);
   const [captionsEnabled, setCaptionsEnabled] = useState(true);
   const [captionStyle, setCaptionStyle] = useState<CaptionStyleId>("bold-impact");
   const [formats, setFormats] = useState<Set<ClipFormat>>(new Set(["vertical", "original"]));
@@ -140,6 +142,7 @@ export default function Home() {
       formData.append("clipCount", clipCount.trim());
     }
     formData.append("language", language);
+    formData.append("captionLanguage", captionsEnabled ? captionLanguage : DEFAULT_CAPTION_LANGUAGE_ID);
     formData.append("captionStyle", captionsEnabled ? captionStyle : "none");
     for (const format of formats) formData.append("formats", format);
     formData.append("removeFillers", String(removeFillers));
@@ -174,6 +177,7 @@ export default function Home() {
           mode === "clips" && targetDuration !== null ? String(targetDuration) : undefined,
         clipCount: mode === "clips" && clipCount.trim() !== "" ? clipCount.trim() : undefined,
         language,
+        captionLanguage: captionsEnabled ? captionLanguage : DEFAULT_CAPTION_LANGUAGE_ID,
         captionStyle: captionsEnabled ? captionStyle : "none",
         formats: [...formats],
         removeFillers: String(removeFillers),
@@ -373,7 +377,10 @@ export default function Home() {
 
           <div className="mt-8">
             <label htmlFor="language" className="block">
-              <SectionLabel>Language</SectionLabel>
+              <SectionLabel>Spoken language</SectionLabel>
+              <p className="text-[11px] leading-snug text-gray-500">
+                Helps transcription accuracy — leave on Auto-detect unless it struggles.
+              </p>
             </label>
             <select
               id="language"
@@ -424,6 +431,30 @@ export default function Home() {
                     <p className="text-[11px] leading-snug text-gray-500">{CAPTION_STYLES[id].description}</p>
                   </button>
                 ))}
+              </div>
+            )}
+
+            {captionsEnabled && (
+              <div className="mt-4">
+                <label htmlFor="captionLanguage" className="block">
+                  <span className="text-xs font-medium text-gray-700">Caption language</span>
+                  <p className="text-[11px] leading-snug text-gray-500">
+                    Translates the captions if different from what&apos;s spoken — e.g. an Urdu video
+                    with English captions.
+                  </p>
+                </label>
+                <select
+                  id="captionLanguage"
+                  value={captionLanguage}
+                  onChange={(e) => setCaptionLanguage(e.target.value)}
+                  className="mt-2 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-gray-900 focus:outline-none"
+                >
+                  {CAPTION_LANGUAGE_OPTIONS.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
               </div>
             )}
           </div>

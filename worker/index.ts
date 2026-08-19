@@ -38,6 +38,7 @@ async function processJob(job: Job): Promise<void> {
     clipCount: job.clipCount,
     targetDurationSeconds: job.targetDurationSeconds,
     languageId: job.languageId,
+    captionLanguageId: job.captionLanguageId,
     formats: job.formats,
     removeFillers: job.removeFillers,
     watermarkPath: WATERMARK_LOGO_PATH,

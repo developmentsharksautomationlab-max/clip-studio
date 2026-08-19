@@ -68,6 +68,9 @@ export interface Job {
   clipCount?: number;
   targetDurationSeconds?: number;
   languageId: string;
+  // Target language for the burned-in captions/SRT — "same" (default) or
+  // missing means keep the spoken language as-is. See lib/video/translate.ts.
+  captionLanguageId?: string;
   formats: ClipFormat[];
   removeFillers: boolean;
   progressMessage?: string;

@@ -7,7 +7,10 @@ FROM node:22-slim
 # Real ffmpeg from Debian's package repo — no whisper filter needed here,
 # since production transcription goes through a hosted API instead
 # (TRANSCRIPTION_PROVIDER=hosted-api, see lib/video/transcribe.ts).
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
+# fonts-noto-core covers Arabic/Urdu and Devanagari/Hindi glyphs for burned-
+# in captions (see lib/video/caption.ts) — a bare Debian image ships no
+# fonts at all, so without this ANY caption text would fail to render.
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg fonts-noto-core \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

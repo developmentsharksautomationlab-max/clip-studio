@@ -20,6 +20,7 @@ export const jobs = pgTable("jobs", {
   clipCount: integer("clip_count"),
   targetDurationSeconds: integer("target_duration_seconds"),
   languageId: text("language_id").notNull(),
+  captionLanguageId: text("caption_language_id"),
   formats: jsonb("formats").$type<ClipFormat[]>().notNull(),
   removeFillers: boolean("remove_fillers").notNull(),
   progressMessage: text("progress_message"),

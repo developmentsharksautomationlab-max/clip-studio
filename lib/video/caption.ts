@@ -7,6 +7,27 @@ export interface CaptionCanvas {
   height: number;
 }
 
+// The style presets' own fonts (Impact / Arial) have no Arabic or
+// Devanagari glyphs, so Urdu/Hindi captions would render as empty boxes —
+// this is very likely what "captions come out wrong" meant for a non-Latin
+// caption language. Swap to a font that actually covers the script instead.
+// Font names differ by platform because they're resolved against whatever
+// fonts are actually installed: Windows (local dev) already ships Arial
+// with Arabic coverage and Nirmala UI for Devanagari; the worker's Docker
+// image installs the Noto family for the same purpose (see Dockerfile.worker).
+const IS_WINDOWS = process.platform === "win32";
+const SCRIPT_FONTS = {
+  arabic: IS_WINDOWS ? "Arial" : "Noto Sans Arabic",
+  devanagari: IS_WINDOWS ? "Nirmala UI" : "Noto Sans Devanagari",
+} as const;
+
+function detectDominantScript(candidate: ClipCandidate): keyof typeof SCRIPT_FONTS | null {
+  const sample = candidate.segments.map((s) => s.text).join(" ");
+  if (/[؀-ۿݐ-ݿ]/.test(sample)) return "arabic";
+  if (/[ऀ-ॿ]/.test(sample)) return "devanagari";
+  return null;
+}
+
 function formatAssTime(seconds: number): string {
   const clamped = Math.max(0, seconds);
   const h = Math.floor(clamped / 3600);
@@ -74,6 +95,8 @@ export function buildAssSubtitles(
   posYOverride?: number
 ): string {
   const style = CAPTION_STYLES[styleId];
+  const script = detectDominantScript(candidate);
+  const fontName = script ? SCRIPT_FONTS[script] : style.fontName;
   const fontSize = Math.round(canvas.height * style.fontSizeRatio);
   const outline = Math.max(2, Math.round(fontSize * style.outlineRatio));
   const shadow = Math.max(1, Math.round(fontSize * 0.035));
@@ -88,7 +111,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,${style.fontName},${fontSize},${style.baseColor},${style.baseColor},&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,${outline},${shadow},5,40,40,40,1
+Style: Default,${fontName},${fontSize},${style.baseColor},${style.baseColor},&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,${outline},${shadow},5,40,40,40,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text

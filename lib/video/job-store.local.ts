@@ -13,6 +13,7 @@ export interface CreateJobOptions {
   clipCount?: number;
   targetDurationSeconds?: number;
   languageId: string;
+  captionLanguageId?: string;
   formats: ClipFormat[];
   removeFillers: boolean;
 }
@@ -87,6 +88,7 @@ export async function createJob(id: string, options: CreateJobOptions): Promise<
     clipCount: options.clipCount,
     targetDurationSeconds: options.targetDurationSeconds,
     languageId: options.languageId,
+    captionLanguageId: options.captionLanguageId,
     formats: options.formats,
     removeFillers: options.removeFillers,
     clips: [],
