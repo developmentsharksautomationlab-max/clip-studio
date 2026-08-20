@@ -103,19 +103,36 @@ export default function Home() {
   const [removeFillers, setRemoveFillers] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [blobUploadsEnabled, setBlobUploadsEnabled] = useState(false);
+  // null = still checking. Deliberately not defaulted to false: guessing
+  // wrong here would silently route a real video file through the small
+  // direct-upload path instead of blob storage, which is exactly what
+  // produced a 413 (Vercel's serverless functions cap request bodies far
+  // below typical video sizes) — so the form stays disabled until this is
+  // actually known, with retries, rather than ever picking a fallback.
+  const [blobUploadsEnabled, setBlobUploadsEnabled] = useState<boolean | null>(null);
+  const [configError, setConfigError] = useState(false);
 
   // Checked live from the server rather than baked in at build time — see
   // app/api/config/route.ts for why (a build-time flag here could silently
   // go stale whenever env vars changed without a fresh deploy).
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/config", { cache: "no-store" })
-      .then((res) => res.json())
-      .then((data: { blobUploadsEnabled?: boolean }) => {
-        if (!cancelled) setBlobUploadsEnabled(Boolean(data.blobUploadsEnabled));
-      })
-      .catch(() => {});
+
+    async function loadConfig() {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const res = await fetch("/api/config", { cache: "no-store" });
+          const data = (await res.json()) as { blobUploadsEnabled?: boolean };
+          if (!cancelled) setBlobUploadsEnabled(Boolean(data.blobUploadsEnabled));
+          return;
+        } catch {
+          if (attempt < 2) await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+        }
+      }
+      if (!cancelled) setConfigError(true);
+    }
+
+    loadConfig();
     return () => {
       cancelled = true;
     };
@@ -200,7 +217,7 @@ export default function Home() {
 
   async function handleSubmit(e: SubmitEvent) {
     e.preventDefault();
-    if (!file) return;
+    if (!file || blobUploadsEnabled === null) return;
 
     setUploading(true);
     setError(null);
@@ -472,13 +489,22 @@ export default function Home() {
           <WatermarkBadge />
 
           {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
+          {configError && (
+            <p className="mt-4 text-sm text-red-600">
+              Couldn&apos;t reach the server to check upload settings. Refresh the page and try again.
+            </p>
+          )}
 
           <button
             type="submit"
-            disabled={!file || uploading}
+            disabled={!file || uploading || blobUploadsEnabled === null}
             className="mt-8 w-full rounded-xl bg-gray-900 py-3 text-sm font-semibold text-white transition-colors hover:bg-gray-700 disabled:opacity-40"
           >
-            {uploading ? "Uploading..." : "Generate clips"}
+            {uploading
+              ? "Uploading..."
+              : blobUploadsEnabled === null
+                ? "Checking upload settings..."
+                : "Generate clips"}
           </button>
         </form>
       </div>
